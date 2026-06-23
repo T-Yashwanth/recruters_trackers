@@ -1,0 +1,17 @@
+# Gmail API Secrets
+gmail/credentials.json
+gmail/token.json
+
+# Virtual Environment
+recruters_emails/
+
+# Cache files and user data
+data/*.json
+data/*.xlsx
+data/~$*.xlsx
+debug_aditya.txt
+
+# Python system cache
+__pycache__/
+**/__pycache__/
+*.pyc

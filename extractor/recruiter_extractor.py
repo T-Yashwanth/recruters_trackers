@@ -1,9 +1,16 @@
+"""
+Legacy / standalone recruiter email extraction script.
+
+This script fetches messages matching specific recruiting keywords, extracts sender details
+and company domains, and appends new items to the 'data/recruiters.xlsx' spreadsheet.
+"""
+
 import os
 import sys
 import re
 from datetime import datetime
 
-# Ensure project root is in sys.path
+# Ensure project root is in sys.path to allow execution directly from terminal
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
@@ -12,7 +19,20 @@ from gmail.auth import get_credentials
 from googleapiclient.discovery import build
 import pandas as pd
 
+
 def extract_company_from_email(email):
+    """
+    Extracts the company name from an email address domain.
+    
+    Excludes common personal email providers (like gmail, yahoo, etc.) and returns 'Independent'
+    for them. Parses out common subdomains.
+    
+    Args:
+        email (str): A clean email address string.
+        
+    Returns:
+        str: Inferred company name (capitalized).
+    """
     if "@" not in email:
         return "Unknown"
     domain = email.split("@")[1].lower()
@@ -27,7 +47,7 @@ def extract_company_from_email(email):
     # Extract company name from domain (e.g., 'sub.company.com' -> 'company')
     parts = domain.split(".")
     if len(parts) >= 2:
-        # If second to last part is a common second-level domain (like co.uk, com.au)
+        # Check for common second-level domains (like co.uk, com.au)
         if parts[-2] in {"co", "com", "org", "net", "edu", "gov"} and len(parts) >= 3:
             company_name = parts[-3]
         else:
@@ -35,8 +55,18 @@ def extract_company_from_email(email):
         return company_name.capitalize()
     return domain.capitalize()
 
+
 def parse_sender(sender_value):
-    # Match "Name <email>" or just "email"
+    """
+    Splits a raw 'From' header value into a clean name and email pair.
+    
+    Args:
+        sender_value (str): The raw From header text.
+        
+    Returns:
+        tuple: (name, email) as strings.
+    """
+    # Match patterns like "John Smith <john@company.com>"
     name_match = re.match(r'^(.*?)\s*<(.*)>$', sender_value)
     if name_match:
         name = name_match.group(1).strip().strip('"').strip("'")
@@ -46,16 +76,21 @@ def parse_sender(sender_value):
         email = sender_value.strip()
     return name, email
 
+
 def run_extractor():
+    """
+    Executes the legacy/standalone extraction pipeline.
+    
+    Searches Gmail for recruiter-related terms, filters against existing Excel spreadsheet
+    records, parses headers, and updates 'data/recruiters.xlsx'.
+    """
     print("Starting Recruiter Extractor...")
     
-    # 1. Get credentials and build service
+    # 1. Get credentials and build Gmail API service
     creds = get_credentials()
     service = build("gmail", "v1", credentials=creds)
     
-    # 2. Fetch recent messages
-    # We search for emails with "recruiter", "job", "career", "interview", "application", "hiring"
-    # to filter relevant ones.
+    # 2. Fetch recent message summaries matching keywords
     query = "recruiter OR job OR career OR interview OR application OR hiring"
     print(f"Searching for messages with query: '{query}'...")
     
@@ -77,7 +112,7 @@ def run_extractor():
     os.makedirs(data_dir, exist_ok=True)
     excel_path = os.path.join(data_dir, "recruiters.xlsx")
     
-    # Load existing data to check for duplicates
+    # Load existing message IDs to check for duplicates
     existing_ids = set()
     if os.path.exists(excel_path):
         try:
@@ -93,11 +128,11 @@ def run_extractor():
         
     new_recruiters = []
     
-    # 3. Process each message
+    # 3. Fetch full details and headers for each new message
     for i, msg in enumerate(messages_summary):
         msg_id = msg["id"]
         if msg_id in existing_ids:
-            # Skip duplicates
+            # Skip if already logged
             continue
             
         try:
@@ -113,6 +148,7 @@ def run_extractor():
             subject = ""
             date_value = ""
             
+            # Find relevant header fields
             for header in headers:
                 name = header.get("name", "").lower()
                 if name == "from":
@@ -140,7 +176,7 @@ def run_extractor():
         except Exception as e:
             print(f"Error processing message {msg_id}: {e}")
             
-    # 4. Save to Excel
+    # 4. Save combined old and new records back to Excel
     if new_recruiters:
         df_new = pd.DataFrame(new_recruiters)
         if not df_existing.empty:
@@ -152,11 +188,12 @@ def run_extractor():
         cols = ["Date", "Recruiter Name", "Recruiter Email", "Company", "Subject", "Snippet", "Message ID"]
         df_combined = df_combined[[c for c in cols if c in df_combined.columns]]
         
-        # Sort by date (optional, let's keep order or sort if dates are parseable)
         df_combined.to_excel(excel_path, index=False)
         print(f"Success! Saved {len(new_recruiters)} new records to '{excel_path}'.")
     else:
         print("No new recruiters to add.")
 
+
 if __name__ == "__main__":
     run_extractor()
+
